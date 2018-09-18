@@ -1,4 +1,4 @@
-//####################################################
+﻿//####################################################
 // JSXBridge_Debugger
 // Constructor
 //####################################################
@@ -60,24 +60,45 @@ JSXBridge_Debugger.prototype.channel = function (id) {
 	return chan;
 }
 
-JSXBridge_Debugger.prototype.formatMessage = function(message) {
+JSXBridge_Debugger.prototype.explodeMessage = function(message,shouldId) {
+	var result = [];
+	shouldId = (shouldId != 'undefined') ? shouldId : this.canChannelId();
+	var channelIdString = this.getChannelIdFormattedString();
 	if (this.canChannelId()) {
-		/*
+		
 		var type = typeof message;
+		alert(type);
 		switch (type) {
-			case "number":
-			case "string":
-				
+			case "object":
+				if (shouldId) result.push(channelIdString);
+				result.push(this.formatMessage(message));
+				break;
+			case "function":
+				if (shouldId) result.push(channelIdString);
+				result.push(this.formatMessage(message));
 				break;
 			default :
-				message = this.getChannelIdFormattedString() + message;
+				result.push(this.getChannelIdFormattedString() + this.formatMessage(message));
 				break;
 		}
-		*/
-		message = this.getChannelIdFormattedString() + message;
+		
 	}
+	return result;
+}
+
+JSXBridge_Debugger.prototype.formatMessage = function(message) {
+		var type = typeof message;
+		switch (type) {
+			case "function":
+				return "function : "+message.name;
+				break;
+			default :
+				return message;
+				break;
+		}
 	return message;
 }
+
 
 JSXBridge_Debugger.prototype.getChannelIdFormattedString = function() {
 	return this._channel_path + this._channel_path_end;
@@ -85,7 +106,6 @@ JSXBridge_Debugger.prototype.getChannelIdFormattedString = function() {
 
 JSXBridge_Debugger.prototype.popup = function(message) { 
 	if (this.canAlert()) { 
-		//message = this.formatMessage(message);
 		JSXBridge_Debugger._alert(message);
 	}
 	return this;
@@ -96,14 +116,12 @@ JSXBridge_Debugger.prototype.popupJson = function(message) {
 		message = JSXBridge_Debugger.stringify(message);
 		var regex = new RegExp(/"/g);
 		message = message.replace(regex,'\\"');
-		message = this.formatMessage(message);
 		JSXBridge_Debugger._alert(message); 
 	}
 	return this;
 }
 
 JSXBridge_Debugger.prototype.stack = function(message) { 
-	message = this.formatMessage(message);
 	this._queue.push(message);
 	return this;
 }
@@ -114,23 +132,20 @@ JSXBridge_Debugger.prototype.stackJson = function(message) {
 }
 JSXBridge_Debugger.prototype.flush = function (message,shoudSeparate) {
 	if (this.canWrite()) {
-		JSXBridge_Debugger._writeln(this._separator);
+		JSXBridge_Debugger._writeln("["+this._separator);
 		var n = this._queue.length;
-		var message = "[stack flush] :"+this._newline;
-		for (var i=0;i<n;i++) {
-			message += this._newline + this._queue[i] + this._newline;
-		}
-		message += this._separator;
-		this.writeln(message);
+		if (this.canChannelId()) JSXBridge_Debugger._writeln(this.getChannelBranchPath() + " > [stack flush] ["+n+" item(s)] :");
+		for (var i=0;i<n;i++) JSXBridge_Debugger._writeln(this.formatMessage(this._queue[i]));
+		JSXBridge_Debugger._writeln(this._separator+"]");
 	}
-	queue = [];
+	this._queue = [];
 	return this;
 }
 
 JSXBridge_Debugger.prototype.write = function (message) {
 	if (this.canWrite()) { 
-		message = this.formatMessage(message);
-		JSXBridge_Debugger._write(message);  
+		var messages = this.explodeMessage(message);
+		for (var i = 0 ; i<messages.length; i++) JSXBridge_Debugger._write(messages[i]);
 	}
 	return this;
 }
@@ -142,9 +157,9 @@ JSXBridge_Debugger.prototype.log = function(message,shouldSeperate) {
 
 JSXBridge_Debugger.prototype.writeln = function (message,shoudSeparate) {
 	if (this.canWrite()) {
-		message = this.formatMessage(message);
+		var messages = this.explodeMessage(message);
 		if (shoudSeparate) JSXBridge_Debugger._writeln(this._separator);
-		JSXBridge_Debugger._writeln(message); 
+		for (var i = 0 ; i<messages.length ; i++) JSXBridge_Debugger._writeln(messages[i]); 
 		if (shoudSeparate) JSXBridge_Debugger._writeln(this._separator);
 	}
 	return this;
@@ -153,19 +168,9 @@ JSXBridge_Debugger.prototype.writeln = function (message,shoudSeparate) {
 JSXBridge_Debugger.prototype.json = function (message) {
 	if (this.canWrite()) { 
 		var message = JSXBridge_Debugger.stringify(message);
-		message = this.formatMessage(message);
-		JSXBridge_Debugger._writeln(message); 
+		var messages = this.explodeMessage(message);
+		for (var i = 0 ; i<messages.length; i++) JSXBridge_Debugger._writeln(messages[i]);
 	};
-	return this;
-}
-
-JSXBridge_Debugger.prototype.struct = function (message,shoudSeparate) {
-	if (this.canWrite()) {this.formatMessage("")
-		if (shoudSeparate) JSXBridge_Debugger._writeln(this._separator);
-		JSXBridge_Debugger._writeln(this.formatMessage("")); 
-		JSXBridge_Debugger._writeln(message); 
-		if (shoudSeparate) JSXBridge_Debugger._writeln(this._separator);
-	}
 	return this;
 }
 
@@ -173,12 +178,6 @@ JSXBridge_Debugger.prototype.separate = function () {
 	if (this.canWrite()) {
 		JSXBridge_Debugger._writeln(this._separator);
 	}
-	return this;
-}
-
-JSXBridge_Debugger.prototype.dispatch = function (message) {
-	if (this.canAlert()) { this.popup(message); }
-	if (this.canWrite()) { this.writeln(message); }
 	return this;
 }
 

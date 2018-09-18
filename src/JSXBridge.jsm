@@ -20,32 +20,10 @@ JSXBridgeEvent.prototype.clone = function () {
     return event;
 }
 
-JSXBridgeEvent.prototype.mirrorClone = function () {
-    var event  = new JSXBridgeEvent(this.type,this.data,this.scope);
-    event.context = this.context;
-    event.bridge = "";
-    event.bridgeName = this.bridgeName;
-    return event;
-}
-
-JSXBridgeEvent.prototype.stringClone = function () {
-    var clone = this.clone();
-    clone.bridge = "";
-    return JSXBridge.jsonHelper.stringify(clone);
-}
-
 JSXBridgeEvent.prototype.toString = function() {
-    return this.stringClone();
+    return JSXBridge.jsonHelper.stringify(this);
 }
 
-JSXBridgeEvent.createFromString = function (event_string){
-    var parsed = JSON.parse(event_string);
-    var event = new JSXBridgeEvent(parsed.type,parsed.data,parsed.scope);
-    event.context = parsed.context;
-    event.bridge = parsed.bridge;
-    event.bridgeName = parsed.bridgeName;
-    return event;
-}
 
 JSXBridgeEvent.CALL = "JSXBRIDGE.CALL";
 JSXBridgeEvent.READY = "JSXBRIDGE.READY";
@@ -168,7 +146,6 @@ JSXBridgeEventScope.CURRENT = "current";
 //####################################################
 
 JSXBridge = function(client,bridgeName) {
-    //if (!JSXBridge.isInitialized()) JSXBridge.init();
     this.client = client;
     this.bridgeName = bridgeName;
     JSXBridge.register(this);
@@ -455,10 +432,6 @@ JSXBridge._dispatchBridgeEventAmongListeners = function (event) {
     } 
 }
 
-JSXBridge._dispatchBridgeEventAmongListenersFromString = function (string_event) {
-    var event = JSXBridgeEvent.createFromString(string_event);
-    JSXBridge._dispatchBridgeEventAmongListeners(event);
-}
 
 JSXBridge.registerAsListener = function (bridge,type,handler) {
     var handlersList = JSXBridge.getOrCreateBridgeEventHandlersList(type);
@@ -487,7 +460,7 @@ JSXBridge.dispatchBridgeEvent = function (bridgeEvent) {
         JSXBridge.mirror(
             JSXBridge._bridge,
             '_dispatchBridgeEventAmongListeners',
-            bridgeEvent.mirrorClone()
+            bridgeEvent.clone()
         );
     }
 
@@ -615,15 +588,6 @@ JSXBridge.includeJSM = function(path,callback_or_expression) {
 JSXBridge.include = function(param,callback) {
     return JSXBridgeIncluder.include(param,callback);
 }
-/*
-JSXBridge.initModule = function(path,callback) {
-    var m = JSXBridge.includeJSM(path,function(result) {
-        m.init();
-        JSXBridge.bridgeCall(m._bridgeName,"init",null,callback,JSXBridgeEventScope.MIRROR);
-    });
-    return m;
-}
-*/
 
 
 JSXBridge.getCleanPath = function(path) {
