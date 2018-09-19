@@ -145,11 +145,12 @@ JSXBridgeEventScope.CURRENT = "current";
 // JSXBridge constructor
 //####################################################
 
-JSXBridge = function(client,bridgeName) {
+JSXBridge = function(client,bridgeName,mirrorName) {
     this.client = client;
     this.bridgeName = bridgeName;
-    JSXBridge.register(this);
-    this.initClient(client,bridgeName);
+    this.mirrorName = (mirrorName) ? mirrorName : bridgeName;
+    JSXBridge.registerBridge(this);
+    this.initClient(client);
 }
 
 //####################################################
@@ -157,10 +158,14 @@ JSXBridge = function(client,bridgeName) {
 //####################################################
 
 //TODO : make it work !
-JSXBridge.prototype.initClient = function (client,bridgeName) {
+JSXBridge.prototype.initClient = function (client) {
     if (!client) return;
     
     var _self = this;
+
+    if (typeof client.jsxbridge == 'undefined') {
+        client.jsxbridge = _self;
+    }
 
     if (typeof client.addBridgeEventListener == 'undefined') {
         client.addBridgeEventListener = function(type,handler) {
@@ -230,6 +235,15 @@ JSXBridge.prototype.setBridgeName = function (bridgeName) {
 
 JSXBridge.prototype.getBridgeName = function () {
 	return this.bridgeName;
+}
+
+JSXBridge.prototype.setMirrorName = function (mirrorName) {
+    this.mirrorName = mirrorName;
+    return this.mirrorName;
+}
+
+JSXBridge.prototype.getMirrorName = function () {
+	return this.mirrorName;
 }
 
 JSXBridge.prototype.addBridgeEventListener = function (type,handler) {
@@ -360,7 +374,11 @@ JSXBridge.on_BRIDGE_CALL = function (event) {
     return bridgeCallResult;
 }
 
-JSXBridge.register = function (bridge) {
+JSXBridge.register = function (client,bridgeName,mirrorName) {
+    return new JSXBridge(client,bridgeName,mirrorName);
+}
+
+JSXBridge.registerBridge = function (bridge) {
     JSXBridge._bridgesMap[bridge.bridgeName] = bridge;
     JSXBridge._bridgesArray.push(bridge);
 }
@@ -479,7 +497,7 @@ JSXBridge.getOrCreateBridgeEventHandlersList = function(type) {
 }
 
 JSXBridge.mirror = function (bridge,function_name,function_args,callback_or_expression) {
-    return JSXBridge.bridgeCall(bridge.bridgeName,function_name,function_args,callback_or_expression);
+    return JSXBridge.bridgeCall(bridge.mirrorName,function_name,function_args,callback_or_expression);
 }
 
 JSXBridge.evalCallback = function(callback_or_expression,data) {
