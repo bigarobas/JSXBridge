@@ -26,108 +26,31 @@ JSXBridgeEvent.prototype.toString = function() {
 
 
 JSXBridgeEvent.CALL = "JSXBRIDGE.CALL";
+JSXBridgeEvent.CALLBACK = "JSXBRIDGE.CALLBACK";
 JSXBridgeEvent.READY = "JSXBRIDGE.READY";
 
-//####################################################
-// JSXBridgeIncluder
-//####################################################
-
-JSXBridgeIncludeData = function(path,scope) {
-    this.path = path;
-    this.scope = scope;
+JSXBridgeEvent._event_id_count = 0;
+JSXBridgeEvent.createCallBackEventId = function () { 
+    return JSXBridgeEvent._event_id_count++;
 }
 
-JSXBridgeIncludeGroup = function(queue,callback) {
-    this.queue = queue;
-    this.callback = callback;
-    this.complete_count = 0;
+JSXBridgeEvent.createCallBackEventType = function (event_id) {
+    var stamp = (event_id) ? event_id : JSXBridgeEvent.createCallBackEventId();
+    return JSXBridgeEvent.CALLBACK+"_"+stamp;
 }
-
-
-JSXBridgeIncluder = function () {}
-JSXBridgeIncluder._queue = [];
-JSXBridgeIncluder._isWorking = false;
-JSXBridgeIncluder._current_group = null;
-JSXBridgeIncluder._current_include = null;
-
-JSXBridgeIncluder.getIncludeDataFromParam = function(data) {
-    if (!data) return null;
-    switch (typeof data) {
-        case "string" :
-                var scope = data.split(".");
-                if (scope) {
-                    if (scope.length>0) scope = scope.pop();
-                    else scope = null;
-                }
-                return new JSXBridgeIncludeData(data,scope);
-            break;
-        case "object" :
-                return new JSXBridgeIncludeData(data.path,data.scope);
-            break;
+JSXBridgeEvent.createCallBackEventData = function (call_event,result) {
+    return  {
+        call_event : call_event,
+        event_id : call_event.data.event_id,
+        result : result
     }
-    return null;
 }
-
-JSXBridgeIncluder.include = function(data,callback) {
-    if (!data) return null;
-    var queue = [];
-    switch (typeof data) {
-        case "string" :
-            queue.push(this.getIncludeDataFromParam(data));
-            break;
-        case "object" :
-            if (JSXBridge.arrayHelper.isArray(data)) for (var i = 0 ; i<data.length ;i++) { queue.push(this.getIncludeDataFromParam(data[i])); }  
-            else queue.push(this.getIncludeDataFromParam(data));
-            break;
-    }
-    return this._addToQueue(new JSXBridgeIncludeGroup (queue,callback));
-}
-
-JSXBridgeIncluder._addToQueue = function(group) {
-    this._queue.push(group);
-    if (!this._isWorking) this._next();
-}
-
-JSXBridgeIncluder._next = function() {
-    if (this._isWorking) return false;
-    if (!this._current_group) {  this._current_group = this._queue.shift(); }
-    if (!this._current_group) { this._isWorking = false; return false; }
-    if (this._current_group.complete_count == this._current_group.queue.length) {
-        JSXBridge.evalCallback(this._current_group.callback);
-        this._current_group = null;
-        this._isWorking = false;
-        this._next();
-        return true;
-    }
-    this._isWorking = true;
-    
-    this._current_include = this._current_group.queue[this._current_group.complete_count];
-    
-    var includeFunction = null;
-    
-    switch (this._current_include.scope) {
-        case "mirror" : includeFunction = (JSXBridge.checkContext("jsx")) ? JSXBridge.includeJS : JSXBridge.includeJSX; break;
-        case "current" : includeFunction = (JSXBridge.checkContext("jsx")) ? JSXBridge.includeJSX : JSXBridge.includeJS; break;
-        case "js" : includeFunction = JSXBridge.includeJS; break;
-        case "jsx" : includeFunction = JSXBridge.includeJSX; break;
-        case "jsm" : includeFunction = JSXBridge.includeJSM; break;
-    }
-
-    var _self = this;
-    try {
-        includeFunction(this._current_include.path,function(e) {
-            _self._current_group.complete_count++;
-            _self._isWorking = false;
-            _self._next();
-        })
-    } catch (e) {
-        alert(e); alert("JSXBridgeIncluder cannot include : "+this._current_include.path);
-        _self._current_group.complete_count++;
-        _self._isWorking = false;
-        _self._next();
-    }
-    return true;
-
+JSXBridgeEvent.createCallBackEvent = function (call_event,result,scope) {
+    return new JSXBridgeEvent(
+        JSXBridgeEvent.createCallBackEventType(call_event.data.event_id), 
+        JSXBridgeEvent.createCallBackEventData(call_event,result), 
+        (scope) ? scope : "jsx"
+    );
 }
 
 //####################################################
@@ -149,7 +72,7 @@ JSXBridge = function(client,bridgeName,mirrorName) {
     this.client = client;
     this.bridgeName = bridgeName;
     this.mirrorName = (mirrorName) ? mirrorName : bridgeName;
-    JSXBridge.registerBridge(this);
+    JSXBridge._registerBridge(this);
     this.initClient(client);
 }
 
@@ -157,56 +80,77 @@ JSXBridge = function(client,bridgeName,mirrorName) {
 // JSXBridge prototype
 //####################################################
 
-//TODO : make it work !
 JSXBridge.prototype.initClient = function (client) {
     if (!client) return;
     
     var _self = this;
 
-    if (typeof client.jsxbridge == 'undefined') {
-        client.jsxbridge = _self;
+    if (typeof client._jsxbridge == 'undefined') {
+        client._jsxbridge = _self;
     }
 
-    if (typeof client.addBridgeEventListener == 'undefined') {
-        client.addBridgeEventListener = function(type,handler) {
-            _self.addBridgeEventListener(type,handler);
-        }
-    }
+   
+   //----------------------------------------
     if (typeof client.dispatchBridgeEvent == 'undefined') {
         client.dispatchBridgeEvent = function(event) {
-            _self.dispatchBridgeEvent(event);
+            return _self.dispatchBridgeEvent(event);
         }
     }
+
     if (typeof client.dispatch == 'undefined') {
         client.dispatch = function(type,data,scope) {
-            _self.dispatch(type,data,scope);
+            return _self.dispatch(type,data,scope);
+        }
+    }
+    //----------------------------------------
+    if (typeof client.addBridgeEventListener == 'undefined') {
+        client.addBridgeEventListener = function(type,handler) {
+            return _self.addBridgeEventListener(type,handler);
         }
     }
     if (typeof client.listen == 'undefined') {
         client.listen = function(type,handler) {
-            _self.addBridgeEventListener(type,handler);
+            return _self.addBridgeEventListener(type,handler);
         }
     }
+    //----------------------------------------
+    if (typeof client.removeBridgeEventListener == 'undefined') {
+        client.removeBridgeEventListener = function(type,handler) {
+            return _self.removeBridgeEventListener(type,handler);
+        }
+    }
+
+    if (typeof client.unlisten == 'undefined') {
+        client.unlisten = function(type,handler) {
+            return _self.removeBridgeEventListener(type,handler);
+        }
+    }
+    //----------------------------------------
+
     if (typeof client.createBridgeEvent == 'undefined') {
         client.createBridgeEvent = function(type,data,scope) {
             return _self.createBridgeEvent(type,data,scope);
         }
     }
+
     if (typeof client.mirror == 'undefined') {
         client.mirror = function(function_name,function_args,callback_or_expression) {
             return _self.mirror(function_name,function_args,callback_or_expression);
         }
     }
+
     if (typeof client.bridgeCall == 'undefined') {
         client.bridgeCall = function(bridge_name,function_name,function_args,callback_or_expression,scope) {
             return _self.bridgeCall(bridge_name,function_name,function_args,callback_or_expression,scope);
         }
     }
+
     if (typeof client.getContext == 'undefined') {
         client.getContext = function() {
             return _self.getContext();
         }
     }
+
     if (typeof client.checkContext == 'undefined') {
         client.checkContext = function (ctx) {
             return _self.checkContext(ctx);
@@ -288,17 +232,22 @@ JSXBridge._nodejs_module_path = undefined;
 JSXBridge._nodejs_module_fs = undefined;
 JSXBridge._bridgeName = "JSXBridge";
 JSXBridge._initialized = false;
+JSXBridge._initializing = false;
 JSXBridge._bridgesMap = [];
 JSXBridge._bridgesArray = [];
 JSXBridge._bridgeEventHandlers = [];
+JSXBridge._registerBridge = function (bridge) {JSXBridge._bridgesMap[bridge.bridgeName] = bridge; JSXBridge._bridgesArray.push(bridge);}
+JSXBridge._callbacks_by_event_id = [];
+JSXBridge._date = new Date();
+JSXBridge._bridge =  new JSXBridge(JSXBridge,JSXBridge._bridgeName);
 
 JSXBridge.test = function() { alert("JSXBridge.test");}
 
 JSXBridge.init = function(csinterface_for_js_OR_extension_path_for_jsx) {
-	if (JSXBridge._initialized) return true;
+    if (JSXBridge._initialized) return true;
+    if (JSXBridge._initializing) return false;
 	JSXBridge._ctx = (typeof console !== 'undefined') ? "js" : "jsx";
-    JSXBridge._initialized = true;
-    //JSXBridge._bridge =  new JSXBridge(this,JSXBridge._bridgeName);
+    JSXBridge._initializing = true;
 	if (JSXBridge.checkContext("jsx")) {
         if (typeof CSXSEvent == 'undefined') {
             try {
@@ -329,18 +278,34 @@ JSXBridge.init = function(csinterface_for_js_OR_extension_path_for_jsx) {
         }
         JSXBridge._csInterface.addEventListener(JSXBridgeEvent.CALL,JSXBridge.on_BRIDGE_CALL);
         JSXBridge._extension_path = JSXBridge._csInterface.getSystemPath(SystemPath.EXTENSION);
+        JSXBridge.evalJSX(
+            'try { var res = $.evalFile("'+JSXBridge.getAbsolutePath(__filename)+'"); } catch (e) { alert("JSXBridge couldn\'t Include JSXBridge in JSX Context:" + e);}',
+            function(res) {
+                JSXBridge._bridge.mirror("init",JSXBridge._extension_path,function(res) {
+                    JSXBridge._initializing = false;
+                    JSXBridge._initialized = true;
+                    JSXBridge._bridge.dispatch(JSXBridgeEvent.READY,JSXBridge.getContext());
+                });
+            }
+        );
+       
+        /*
         JSXBridge.includeJSX(__filename,function(res) {
             JSXBridge._bridge.mirror("init",JSXBridge._extension_path,function(res) {
+                JSXBridge._initializing = false;
+                JSXBridge._initialized = true;
                 JSXBridge._bridge.dispatch(JSXBridgeEvent.READY,JSXBridge.getContext());
             });
         });
+        */
+
         
     }
-
     return true;
 }
 
 JSXBridge.on_BRIDGE_CALL = function (event) {
+
     var current_context = JSXBridge.getContext();
     var bridgeName = event.data.bridgeName;
     var mirror = JSXBridge._bridgesMap[bridgeName];
@@ -363,28 +328,37 @@ JSXBridge.on_BRIDGE_CALL = function (event) {
         return bridgeCallResult; 
     }
 
-    var callbackExpression = event.data.callback;
+    JSXBridge.dispatchBridgeEvent(JSXBridgeEvent.createCallBackEvent(event,bridgeCallResult,"jsx"));
+    
+    var callback = event.data.callback;
 
-    if (!callbackExpression) {
+    /*
+    if (!callback) {
+        alert(4);
         return bridgeCallResult;
     }
+    */
 
-    JSXBridge.bridgeCall(bridgeName,callbackExpression,bridgeCallResult,null,JSXBridgeEventScope.JSX);
+    if (typeof callback == "string") {
+        JSXBridge.bridgeCall(bridgeName,callback,bridgeCallResult,null,JSXBridgeEventScope.JSX);
+    } else {
+        JSXBridge.evalCallback(callback);
+    }
 
     return bridgeCallResult;
+
 }
 
 JSXBridge.register = function (client,bridgeName,mirrorName) {
     return new JSXBridge(client,bridgeName,mirrorName);
 }
 
-JSXBridge.registerBridge = function (bridge) {
-    JSXBridge._bridgesMap[bridge.bridgeName] = bridge;
-    JSXBridge._bridgesArray.push(bridge);
-}
-
 JSXBridge.isInitialized = function() {
 	return JSXBridge._initialized;
+}
+
+JSXBridge.isInitializing = function() {
+	return JSXBridge._initializing;
 }
 
 
@@ -460,12 +434,15 @@ JSXBridge.unRegisterAsListener = function (bridge,type,handler) {
     var handlersList = JSXBridge.getOrCreateBridgeEventHandlersList(type);
     var listener;
     var i =  handlersList.length;
+    var count = 0;
     while (i--) {
         listener = handlersList[i];
-            if (listener.bridge == bridge && listener.handler == handler) { 
+        if (listener.bridge == bridge && listener.handler == handler) { 
             handlersList.splice(i, 1);
+            count++;
         } 
     }
+    return count;
 }
 
 JSXBridge.dispatchBridgeEvent = function (bridgeEvent) {
@@ -500,9 +477,11 @@ JSXBridge.mirror = function (bridge,function_name,function_args,callback_or_expr
     return JSXBridge.bridgeCall(bridge.mirrorName,function_name,function_args,callback_or_expression);
 }
 
-JSXBridge.evalCallback = function(callback_or_expression,data) {
-    var callback_function = (typeof callback_or_expression == 'function') ? callback_or_expression : null;
-    var callback_expression = (typeof callback_or_expression == 'string') ? callback_or_expression : null;
+JSXBridge.evalCallback = function(callback,data) {
+    var callback_function = (typeof callback == 'function') ? callback : null;
+    var callback_expression = (typeof callback == 'string') ? callback : null;
+    var callback_object = (typeof callback == 'object') ? callback : null;
+
 
     if (callback_expression) {
         regex = new RegExp(/{args}/g);
@@ -513,10 +492,29 @@ JSXBridge.evalCallback = function(callback_or_expression,data) {
             JSXBridge._csInterface.evalScript(callback_expression);
         }
     }
-   
     
-    if (callback_function) callback_function(data);
+    if (callback_function) {
+        callback_function(data);
+    }
+
+    if (callback_object) {
+        switch(callback_object.type) {
+            case "call" :
+            if (!callback_object.call_args) callback_object.call_args = data;
+                JSXBridge.bridgeCall(callback_object.call_bridge,callback_object.call_method,callback_object.call_args);
+                break;
+            case "event":
+                if (!callback_object.event_data) callback_object.event_data = data;
+                JSXBridge.dispatch(callback_object.event_type,callback_object.event_data,callback_object.event_scope);
+                break;
+            default :
+                break;
+        }
+        
+    }
 }
+
+
 
 JSXBridge.bridgeCall = function (bridge_name,function_name,function_args,callback_or_expression,scope) {
     if (!scope) scope = JSXBridgeEventScope.MIRROR;
@@ -524,14 +522,17 @@ JSXBridge.bridgeCall = function (bridge_name,function_name,function_args,callbac
     var args_str = JSXBridge.argsToString(function_args);
     var callback_function = (typeof callback_or_expression == 'function') ? callback_or_expression : null;
     var callback_expression = (typeof callback_or_expression == 'string') ? callback_or_expression : null;
-
+    var callback_object = (typeof callback_or_expression == 'object') ? callback_or_expression : null;
+    var callback_event_id = JSXBridgeEvent.createCallBackEventId();
+    var callback_event_type = JSXBridgeEvent.createCallBackEventType(callback_event_id);
     var data = {
+        event_id : callback_event_id,
         context : current_context,
         scope : scope,
         bridgeName : bridge_name,
         functionName : function_name,
         functionArgs : function_args,
-        callback : callback_expression
+        callback : (callback_expression) ? callback_expression : (callback_object) ? callback_object : null,
     };
 
     var callResult = null;
@@ -546,6 +547,10 @@ JSXBridge.bridgeCall = function (bridge_name,function_name,function_args,callbac
 
     if (scope != current_context && scope != JSXBridgeEventScope.CURRENT) {
         if (JSXBridge.checkContext("jsx")) {
+            if (callback_function) {
+                JSXBridge.addBridgeEventListener(callback_event_type,JSXBridge.bridgeCall_callback);
+                JSXBridge._callbacks_by_event_id[callback_event_id] = callback_function;
+            }
             event.data = JSXBridge.jsonHelper.stringify(data);
             event.dispatch();
         } else {
@@ -558,80 +563,12 @@ JSXBridge.bridgeCall = function (bridge_name,function_name,function_args,callbac
     return callResult;
 }
 
-JSXBridge.includeJS = function(path,callback_or_expression) {
-    path = JSXBridge.getAbsolutePath(path);
-    if (JSXBridge.checkContext("js")) {
-        var res = require(path);
-        JSXBridge.evalCallback(callback_or_expression);
-        return res;
-    } else {
-        JSXBridge._bridge.mirror("includeJS",path,callback_or_expression);
-        return null;
-    }
+JSXBridge.bridgeCall_callback = function (e) {  
+    var callback_function = JSXBridge._callbacks_by_event_id[e.data.event_id];
+    var res = JSXBridge.removeBridgeEventListener(e.type,JSXBridge.bridgeCall_callback);
+    alert(res);
+    callback_function(e.data.result);
 }
-
-JSXBridge.includeJSX = function(path,callback_or_expression) {
-    
-    
-
-    if (JSXBridge.checkContext("jsx")) {
-         JSXBridge.getAbsolutePath(path,function(absolute_path) {
-            try {
-                var res = $.evalFile(absolute_path);
-                JSXBridge.evalCallback(callback_or_expression);
-                return res;
-            } catch (e) {
-                alert("Exception:" + e);
-            }
-        });
-        
-    } else {
-        path = JSXBridge.getAbsolutePath(path);
-        var expression = 'try { var res = $.evalFile("'+path+'"); } catch (e) { alert("Exception:" + e);}';
-        JSXBridge._csInterface.evalScript(expression,callback_or_expression);
-        return null;
-    }
-}
-
-JSXBridge.includeJSM = function(path,callback_or_expression) {
-    if (JSXBridge.checkContext("jsx")) {
-        JSXBridge._bridge.mirror("includeJSM",path,callback_or_expression);
-    } else {
-        path = JSXBridge.getAbsolutePath(path);
-        JSXBridge.includeJSX(path,callback_or_expression);
-        return require(path);
-    }
-}
-
-JSXBridge.include = function(param,callback) {
-    return JSXBridgeIncluder.include(param,callback);
-}
-
-
-JSXBridge.getCleanPath = function(path) {
-    return  path.replace(/\\/g,"/");
-}
-
-JSXBridge.getAbsolutePath  = function(path,callback) {
-    if (JSXBridge.checkContext("jsx")) {
-        JSXBridge._bridge.mirror("getAbsolutePath",path,callback);
-    } else {
-        var result = path;
-        if (!JSXBridge._nodejs_module_path.isAbsolute(path)) {
-            //result = JSXBridge._nodejs_module_path.resolve(result);
-            result = JSXBridge.getCleanPath(result);
-            var res = result.match(JSXBridge._extension_path);
-            if (res == null) result = JSXBridge._nodejs_module_path.resolve(JSXBridge._extension_path,result)
-        }
-        result = JSXBridge.getCleanPath(result);
-        if (callback) callback(result);    
-        return result;
-    }
-
-
-}
-
-
 
 JSXBridge.evalJSX = function(expression,callback_or_expression) {
     if (JSXBridge.checkContext("js")) {
@@ -642,37 +579,258 @@ JSXBridge.evalJSX = function(expression,callback_or_expression) {
     }
 }
 
-//FROM :
-//https://stackoverflow.com/questions/11616630/json-stringify-avoid-typeerror-converting-circular-structure-to-json
-JSXBridge.jsonHelper = {};
-JSXBridge.jsonHelper.stringify = function(obj) {
-    // Note: cache should not be re-used by repeated calls to JSON.stringify.
-    var cache = [];
-    var result = JSON.stringify(obj, function(key, value) {
-        if (typeof value === 'object' && value !== null) {
-            //if (cache.indexOf(value) !== -1) {
-            if (JSXBridge.arrayHelper.indexOf(cache,value) !== -1) {
-                // Duplicate reference found
-                try {
-                    // If this value does not reference a parent it can be deduped
-                    return JSON.parse(JSON.stringify(value));
-                } catch (error) {
-                    // discard key if value cannot be deduped
-                    return;
-                }
-            }
-            // Store value in our collection
-            cache.push(value);
-        }
-        return value;
-    });
-    cache = null; // Enable garbage collection
-    return result;
+JSXBridge.getCleanPath = function(path) {
+    return  path.replace(/\\/g,"/");
 }
 
-if ( typeof module === "object" && typeof module.exports === "object" ) {
-	module.exports = JSXBridge;
-} 
+JSXBridge.getAbsolutePath  = function(path,callback_or_expression) {
+    if (JSXBridge.checkContext("jsx")) {
+        JSXBridge._bridge.mirror("getAbsolutePath",path,callback_or_expression);
+    } else {
+        var result = path;
+        if (!JSXBridge._nodejs_module_path.isAbsolute(path)) {
+            result = JSXBridge.getCleanPath(result);
+            var res = result.match(JSXBridge._extension_path);
+            if (res == null) result = JSXBridge._nodejs_module_path.resolve(JSXBridge._extension_path,result)
+        }
+        result = JSXBridge.getCleanPath(result);
+        JSXBridge.evalCallback(callback_or_expression,result) ;
+        return result;
+    }
+
+
+}
+
+//----------------------------------------------------
+// JSXBridgeIncluder Interface implementation
+//----------------------------------------------------
+
+JSXBridge.includeJS = function(path,callback_or_expression) {
+    return JSXBridgeIncluder.includeJS(path,callback_or_expression);
+}
+
+JSXBridge.includeJSX = function(path,callback_or_expression) {
+    return JSXBridgeIncluder.includeJSX(path,callback_or_expression);
+}
+
+JSXBridge.includeJSM = function(path,callback_or_expression) {
+    return JSXBridgeIncluder.includeJSM(path,callback_or_expression);
+}
+
+JSXBridge.include = function(param,callback) {
+    return JSXBridgeIncluder.include(param,callback);
+}
+
+JSXBridge.getIncludesByPath = function(){
+    return JSXBridgeIncluder.getIncludesByPath();
+}
+
+JSXBridge.getIncludeByPath = function(path){
+    return JSXBridgeIncluder.getIncludeByPath(path);
+}
+
+JSXBridge.getIncludeById = function(id){
+    return JSXBridgeIncluder.getIncludeById(id);
+}
+
+//####################################################
+// JSXBridgeIncluder
+//####################################################
+
+JSXBridgeIncludeData = function(path,scope) {
+    this.path = path;
+    this.scope = scope;
+}
+
+JSXBridgeIncludeGroup = function(queue,callback) {
+    this.queue = queue;
+    this.callback = callback;
+    this.complete_count = 0;
+}
+
+
+JSXBridgeIncluder = function () {}
+JSXBridgeIncluder._queue = [];
+JSXBridgeIncluder._isWorking = false;
+JSXBridgeIncluder._current_group = null;
+JSXBridgeIncluder._current_include = null;
+JSXBridgeIncluder._includes_by_id = [];
+JSXBridgeIncluder._includes_by_path = [];
+JSXBridgeIncluder._bridge = new JSXBridge(JSXBridgeIncluder,"JSXBridgeIncluder");
+
+
+JSXBridgeIncluder.getIncludeDataFromParam = function(data) {
+    if (!data) return null;
+    switch (typeof data) {
+        case "string" :
+                var scope = data.split(".");
+                if (scope) {
+                    if (scope.length>0) scope = scope.pop();
+                    else scope = null;
+                }
+                return new JSXBridgeIncludeData(data,scope);
+            break;
+        case "object" :
+                return new JSXBridgeIncludeData(data.path,data.scope);
+            break;
+    }
+    return null;
+}
+
+JSXBridgeIncluder.include = function(data,callback) {
+    if (!data) return null;
+    var queue = [];
+    switch (typeof data) {
+        case "string" :
+            queue.push(this.getIncludeDataFromParam(data));
+            break;
+        case "object" :
+            if (JSXBridge.arrayHelper.isArray(data)) for (var i = 0 ; i<data.length ;i++) { queue.push(this.getIncludeDataFromParam(data[i])); }  
+            else queue.push(this.getIncludeDataFromParam(data));
+            break;
+    }
+    return this._addToQueue(new JSXBridgeIncludeGroup (queue,callback));
+}
+
+JSXBridgeIncluder._addToQueue = function(group) {
+    this._queue.push(group);
+    if (!this._isWorking) {
+        this._next();
+    } else {
+
+
+    }
+}
+
+JSXBridgeIncluder._next = function() {
+    //if (this._isWorking) return false;
+    if (!this._current_group) {  
+        if (this._queue.length<=0) {
+            this._isWorking = false; 
+            return false; 
+        }
+        this._current_group = this._queue.shift(); 
+    }
+
+    if (this._current_group.complete_count >= this._current_group.queue.length) {
+        var callback = this._current_group.callback;
+        this._current_group = null;
+        JSXBridge.evalCallback(callback);
+        this._isWorking = false;
+        this._next();
+        return true;
+    }
+
+    this._isWorking = true;
+    
+    this._current_include = this._current_group.queue[this._current_group.complete_count];
+
+    var includeFunction = null;
+    
+    switch (this._current_include.scope) {
+        case "mirror" : includeFunction = (JSXBridge.checkContext("jsx")) ? JSXBridgeIncluder.includeJS : JSXBridgeIncluder.includeJSX; break;
+        case "current" : includeFunction = (JSXBridge.checkContext("jsx")) ? JSXBridgeIncluder.includeJSX : JSXBridgeIncluder.includeJS; break;
+        case "js" : includeFunction = JSXBridgeIncluder.includeJS; break;
+        case "jsx" : includeFunction = JSXBridgeIncluder.includeJSX; break;
+        case "jsm" : includeFunction = JSXBridgeIncluder.includeJSM; break;
+    }
+
+    var _self = this;
+    try {
+        includeFunction(this._current_include.path,function(result) {
+            _self._current_group.complete_count++;
+            _self._next();
+        })
+    } catch (e) {
+        throw new Error("JSXBridgeIncluder cannot include : "+this._current_include.path);
+        _self._current_group.complete_count++;
+        _self._next();
+    }
+    return true;
+
+}
+
+JSXBridgeIncluder.includeJS = function(path,callback_or_expression) {
+    if (JSXBridge.checkContext("js")) {
+        var absolute_path = JSXBridge.getAbsolutePath(path);
+        var res = require(absolute_path);
+        JSXBridgeIncluder._includes_by_path[path] = res;
+        JSXBridge.evalCallback(callback_or_expression,res);
+        return res;
+    } else {
+        JSXBridgeIncluder.mirror("includeJS",path,callback_or_expression);
+        return null;
+    }
+}
+
+JSXBridgeIncluder.includeJSX = function(path,callback_or_expression) {
+    if (JSXBridge.checkContext("jsx")) {
+        JSXBridge.getAbsolutePath(path,function(resolved_path) {
+            var res = JSXBridgeIncluder.__includeJSX(resolved_path)
+            JSXBridgeIncluder._includes_by_path[path] = res;
+            JSXBridge.evalCallback(callback_or_expression,res);
+            return res;
+        }); 
+    } else {
+       var absolute_path = JSXBridge.getAbsolutePath(path);
+       JSXBridgeIncluder.includeJSXWithPathData({path:path,absolute_path:absolute_path},callback_or_expression);
+       return null;
+    }
+}
+
+JSXBridgeIncluder.includeJSXWithPathData = function(path_data,callback_or_expression) {
+    if (JSXBridge.checkContext("jsx")) {
+        var res = JSXBridgeIncluder.__includeJSX(path_data.absolute_path);
+        JSXBridgeIncluder._includes_by_path[path_data.path] = res;
+        JSXBridge.evalCallback(callback_or_expression,res);
+        return res;
+    } else {
+        JSXBridgeIncluder.mirror("includeJSXWithPathData",path_data,callback_or_expression);
+    }
+}
+
+JSXBridgeIncluder.__includeJSX = function(absolute_path) {
+    try {
+        var res = $.evalFile(absolute_path);
+        return res;
+    } catch (e) {
+        alert("JSXBridgeIncluder.__includeJSX couldn\'t include "+absolute_path);
+        alert(e);
+        return null;
+    }
+}
+
+JSXBridgeIncluder.includeJSM = function(path,callback_or_expression) {
+    if (JSXBridge.checkContext("jsx")) {
+        JSXBridgeIncluder.mirror("includeJSM",path,callback_or_expression);
+        return null;
+    } else {
+        var res = JSXBridgeIncluder.includeJS(path);
+        JSXBridgeIncluder._includes_by_path[path] = res;
+        JSXBridgeIncluder.includeJSX(path,function(result) {
+            JSXBridge.evalCallback(callback_or_expression,res);
+        });
+        return res;
+    }
+}
+
+JSXBridgeIncluder.getIncludeByPath = function(path){
+    return JSXBridgeIncluder._includes_by_path[path];
+}
+
+JSXBridgeIncluder.getIncludesByPath = function(){
+    return JSXBridgeIncluder._includes_by_path;
+}
+
+JSXBridgeIncluder.getIncludeById = function(id){
+    return null; //TODO
+}
+
+
+
+//####################################################
+// JSXBridge Array Helpers
+//####################################################
 
 JSXBridge.arrayHelper = {};
 JSXBridge.arrayHelper.indexOf = function(arr,searchElement, fromIndex) {
@@ -747,9 +905,37 @@ JSXBridge.arrayHelper.isArray = function(arr) {
     return Object.prototype.toString.call(arr) === "[object Array]";
 };
 
+//####################################################
+// JSXBridge JSON Helpers
+//####################################################
 
-
-JSXBridge._bridge =  new JSXBridge(JSXBridge,JSXBridge._bridgeName);
+//FROM :
+//https://stackoverflow.com/questions/11616630/json-stringify-avoid-typeerror-converting-circular-structure-to-json
+JSXBridge.jsonHelper = {};
+JSXBridge.jsonHelper.stringify = function(obj) {
+    // Note: cache should not be re-used by repeated calls to JSON.stringify.
+    var cache = [];
+    var result = JSON.stringify(obj, function(key, value) {
+        if (typeof value === 'object' && value !== null) {
+            //if (cache.indexOf(value) !== -1) {
+            if (JSXBridge.arrayHelper.indexOf(cache,value) !== -1) {
+                // Duplicate reference found
+                try {
+                    // If this value does not reference a parent it can be deduped
+                    return JSON.parse(JSON.stringify(value));
+                } catch (error) {
+                    // discard key if value cannot be deduped
+                    return;
+                }
+            }
+            // Store value in our collection
+            cache.push(value);
+        }
+        return value;
+    });
+    cache = null; // Enable garbage collection
+    return result;
+}
 
 //####################################################
 // JSON2 Dependency
@@ -1262,3 +1448,14 @@ if (typeof JSON !== "object") {
         };
     }
 }());
+
+
+
+//####################################################
+// JSXBridge
+// Node Export
+//####################################################
+
+if ( typeof module === "object" && typeof module.exports === "object" ) {
+	module.exports = JSXBridge;
+} 

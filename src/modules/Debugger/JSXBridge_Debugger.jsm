@@ -67,7 +67,6 @@ JSXBridge_Debugger.prototype.explodeMessage = function(message,shouldId) {
 	if (this.canChannelId()) {
 		
 		var type = typeof message;
-		alert(type);
 		switch (type) {
 			case "object":
 				if (shouldId) result.push(channelIdString);

@@ -69,6 +69,13 @@ JSXBridge_Configuration.prototype.evaluate = function(key,injections) {
 
     var value = this.data[key];
     if (typeof value !== "string") return value;
+
+    return this.evaluateString(value,injections);
+}
+
+JSXBridge_Configuration.prototype.evaluateString = function(str,injections) {
+    var value = str;
+    if (typeof value !== "string") return value;
     
     if (injections) {
         for (var inj_key in injections) {
