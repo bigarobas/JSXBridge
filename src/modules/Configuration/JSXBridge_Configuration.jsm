@@ -5,38 +5,6 @@ JSXBridge_Configuration = function (bridgeName) {
     this._onSynchPullCallback = null;
     this.bridgeName = bridgeName;
     this.bridge = new JSXBridge(this,bridgeName);
-    var _self = this;
-}
-
-JSXBridge_Configuration.prototype.onSynchPushComplete = function (json) {
-    this.update(json);
-    if (!this._onSynchPushCallback) return;
-    this._onSynchPushCallback(json);
-}
-
-JSXBridge_Configuration.prototype.onSynchPullFetched = function (json) {
-    this.update(json);
-    var _self = this;
-    if (this.bridge.checkContext("jsx")) {
-        this.bridge.mirror(
-            'update',
-            this.data,
-           'onSynchPullComplete'
-        );
-    } else {
-        this.bridge.mirror(
-            'update',
-            this.data,
-            function(json) {
-                _self.onSynchPullComplete(json);
-            }
-        );
-    }   
-}
-
-JSXBridge_Configuration.prototype.onSynchPullComplete = function (json) {
-    if (!this._onSynchPullCallback) return;
-    this._onSynchPullCallback(json);
 }
 
 JSXBridge_Configuration.prototype.update = function(json) {
@@ -98,6 +66,11 @@ JSXBridge_Configuration.prototype.evaluateString = function(str,injections) {
     return value;
 }
 
+JSXBridge_Configuration.prototype.getData = function() {
+    return this.data;
+}
+
+
 JSXBridge_Configuration.prototype.synch = function(callback) {
     this.synchPush(callback);
 }
@@ -105,50 +78,48 @@ JSXBridge_Configuration.prototype.synch = function(callback) {
 JSXBridge_Configuration.prototype.synchPush = function(callback) {
     this._onSynchPushCallback = callback;
     var _self = this;
-    if (this.bridge.checkContext("jsx")) {
-        
-        this.bridge.mirror(
-            'update',
-            this.data,
-           'onSynchPushComplete'
-        );
-    } else {
-        this.bridge.mirror(
-            'update',
-            this.data,
-            function(json) {
-                _self.onSynchPushComplete(json);
-            }
-        );
-    }  
+    this.bridge.mirror(
+        'update',
+        this.data,
+        function(json) {
+            _self.onSynchPushComplete(json);
+        }
+    );
 }
 JSXBridge_Configuration.prototype.synchPull= function(callback) {
     this._onSynchPullCallback = callback;
     var _self = this;
-    if (this.bridge.checkContext("jsx")) {
+    this.bridge.mirror(
+        'getData',
+        null,
+        function(json) {
+            _self.onSynchPullFetched(json);
+        }
+    );
+}
+
+JSXBridge_Configuration.prototype.onSynchPushComplete = function (json) {
+    this.update(json);
+    if (!this._onSynchPushCallback) return;
+    this._onSynchPushCallback(json);
+}
+
+JSXBridge_Configuration.prototype.onSynchPullFetched = function (json) {
+    this.update(json);
+    var _self = this;
+    this.bridge.mirror(
+        'update',
+        this.data,
+        function(json) {
+            _self.onSynchPullComplete(json);
+        }
         
-        this.bridge.mirror(
-            'getData',
-            null,
-           'onSynchPullFetched'
-        );
-    } else {
-        this.bridge.mirror(
-            'getData',
-            null,
-            function(json) {
-                _self.onSynchPullFetched(json);
-            }
-        );
-    }  
+    );
 }
 
-JSXBridge_Configuration.prototype.getDataString = function() {
-    return JSON.stringify(this.data);
-}
-
-JSXBridge_Configuration.prototype.getData = function() {
-    return this.data;
+JSXBridge_Configuration.prototype.onSynchPullComplete = function (json) {
+    if (!this._onSynchPullCallback) return;
+    this._onSynchPullCallback(json);
 }
 
 if ( typeof module === "object" && typeof module.exports === "object" ) {

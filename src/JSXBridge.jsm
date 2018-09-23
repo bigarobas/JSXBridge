@@ -565,8 +565,7 @@ JSXBridge.bridgeCall = function (bridge_name,function_name,function_args,callbac
 
 JSXBridge.bridgeCall_callback = function (e) {  
     var callback_function = JSXBridge._callbacks_by_event_id[e.data.event_id];
-    var res = JSXBridge.removeBridgeEventListener(e.type,JSXBridge.bridgeCall_callback);
-    alert(res);
+    JSXBridge.removeBridgeEventListener(e.type,JSXBridge.bridgeCall_callback);
     callback_function(e.data.result);
 }
 
